@@ -9,17 +9,19 @@ namespace UniPrep.Utils {
         // FIELDS
         // ================================================
         const string k_ExecutorNamePrefix = "WORK_";
-        static int m_WorkCount;
         WorkExecutor m_Executor;
-        int m_ID;
+        string m_ID;
 
         /// <summary>
-        /// Returns if the coroutine is currently running
+        /// Returns if the <see cref="Work"/> is currently running
         /// </summary>
         public bool Running {
             get { return m_Executor.IsRunning(); }
         }
 
+        /// <summary>
+        /// Returns it the <see cref="Work"/> is paused
+        /// </summary>
         public bool Paused {
             get { return m_Executor.IsPaused(); }
         }
@@ -28,22 +30,22 @@ namespace UniPrep.Utils {
         // CONSTRUCTORS AND PREFABS
         // ================================================
         /// <summary>
-        /// Construct and initializes a Job object
+        /// Constructs a <see cref="Work"/> obejct with the coroutine method
         /// </summary>
-        /// <param name="method">The method to run</param>
-        /// <param name="autoExecute">If the method should start executing immediately</param>
+        /// <param name="method">The coroutine method to run</param>
         public Work(IEnumerator method) {
-            m_ID = ++m_WorkCount;
-            var _executorName = k_ExecutorNamePrefix + m_ID;
-            m_Executor = new GameObject(_executorName).AddComponent<WorkExecutor>();
+            m_ID = Guid.NewGuid().ToString();
+
+            m_Executor = WorkExecutor.pool.Get();
+            m_Executor.name = k_ExecutorNamePrefix + m_ID;
             m_Executor.SetCoroutineMethod(method);
         }
         
         /// <summary>
-        /// Runs the given action after the given delay
+        /// Runs the given action after a delay
         /// </summary>
-        /// <param name="delay">The duration for which the delay must occur.</param>
-        /// <param name="onDone">The action invoked with the delay is over. </param>
+        /// <param name="delay">The delay before the action is executed</param>
+        /// <param name="onDone">The Action to execute</param>
         public static void StartDelayed(float delay, Action onDone) {
             Work delayWork = new Work(DelayCo(delay));
             delayWork.Begin(() => {
@@ -68,43 +70,50 @@ namespace UniPrep.Utils {
         // EXTERNAL INVOKES
         // ================================================
         /// <summary>
-        /// Starts the Work
+        /// Begins the <see cref="Work"/> execution and gives back a callback
         /// </summary>
-        /// <param name="onCompleted">Callback when the work is done</param>
-        public void Begin(Action<T> onCompleted) {
+        /// <param name="onDone">The callback invoked when the execution ends along with the result</param>
+        public void Begin(Action<T> onDone) {
             m_Executor.Begin((result) => {
-                if(onCompleted != null)
-                    onCompleted((T)result);
+                if(onDone != null)
+                    onDone((T)result);
             });
         }
 
-        public void Begin(Action onCompleted) {
+        /// <summary>
+        /// Begins the <see cref="Work"/> execution and gives back a callback
+        /// </summary>
+        /// <param name="onDone">The callback invoked when the execution ends</param>
+        public void Begin(Action onDone) {
             m_Executor.Begin((result) => {
-                if (onCompleted != null)
-                    onCompleted();
+                if (onDone != null)
+                    onDone();
             });
         }
 
+        /// <summary>
+        /// Begins the <see cref="Work"/> execution
+        /// </summary>
         public void Begin() {
             m_Executor.Begin((result) => { });
         }
 
         /// <summary>
-        /// Pauses the Work 
+        /// Pauses the <see cref="Work"/>
         /// </summary>
         public void Pause() {
             m_Executor.Pause();
         }
 
         /// <summary>
-        /// Resumes the Work
+        /// Resumes the <see cref="Work"/>
         /// </summary>
         public void Resume() {
             m_Executor.Resume();
         }
 
         /// <summary>
-        /// Stops the work and cleans up the instance
+        /// Stops the <see cref="Work"/> 
         /// </summary>
         public void End() {
             m_Executor.End();
@@ -119,37 +128,66 @@ namespace UniPrep.Utils {
         // ================================================
         // FIELDS
         // ================================================
-        IEnumerator m_WorkCoroutine;
-        bool m_Running;
-        bool m_Paused;
+        public static ComponentPool<WorkExecutor> pool = new ComponentPool<WorkExecutor>();
+        IEnumerator m_Routine;
         Action<object> m_OnDone;
         object m_Result;
+        bool m_Running;
+        bool m_Paused;
 
+        // Make sure the executor persists across scenes and don't show it
         void Awake() {
             DontDestroyOnLoad(gameObject);
             gameObject.hideFlags = HideFlags.HideAndDontSave;
         }
 
+        // When the object is destroyed (ie. when the game closes)
         void OnDestroy() {
             m_Running = false;
         }
 
         /// <summary>
-        /// Sets the coroutine method to be wrapped in the executor
+        /// Sets the routine to be execution
         /// </summary>
-        /// <param name="method">The coroutine method to be wrapped</param>
+        /// <param name="method">The routine to be executed</param>
         public void SetCoroutineMethod(IEnumerator method) {
-            m_WorkCoroutine = method;
+            m_Routine = method;
         }
 
         /// <summary>
-        /// Starts the wrapped coroutine in the public coroutine
+        /// Begins execution of the routine
         /// </summary>
-        /// <param name="callback">Callback invoked on completion.</param>
+        /// <param name="onDone">When the execution completes</param>
         public void Begin(Action<object> onDone) {
             m_OnDone = onDone;
             m_Running = true;
-            StartCoroutine(ExecutorMethod());
+            StartCoroutine(ExecuteInternalCoroutine());
+        }
+
+        IEnumerator ExecuteInternalCoroutine() {
+            while (m_Running) {
+                if (m_Paused)
+                    yield return null;
+
+                if (m_Routine != null && m_Routine.MoveNext())
+                    yield return m_Routine.Current;
+                else {
+                    m_Result = m_Routine.Current;
+                    m_Running = false;
+                }
+            }
+            Terminate();
+            yield break;
+        }
+
+        /// <summary>
+        /// Terminates the coroutine and the gameobject it is running on
+        /// </summary>
+        public void Terminate() {
+            StopCoroutine(ExecuteInternalCoroutine());
+            m_Routine = null;
+            m_OnDone(m_Result);
+            pool.Free(this);
         }
 
         public void Pause() {
@@ -170,32 +208,6 @@ namespace UniPrep.Utils {
 
         public bool IsPaused() {
             return m_Paused;
-        }
-
-        IEnumerator ExecutorMethod() {
-            while (m_Running) {
-                if (m_Paused)
-                    yield return null;
-
-                if (m_WorkCoroutine != null && m_WorkCoroutine.MoveNext())
-                    yield return m_WorkCoroutine.Current;
-                else {
-                    m_Result = m_WorkCoroutine.Current;
-                    m_Running = false;
-                }
-            }
-            Terminate();
-            yield break;
-        }
-
-        /// <summary>
-        /// Terminates the coroutine and the gameobject it is running on
-        /// </summary>
-        public void Terminate() {
-            StopCoroutine(ExecutorMethod());
-            m_WorkCoroutine = null;
-            m_OnDone(m_Result);
-            Destroy(gameObject);
         }
     }
 }
