@@ -69,13 +69,23 @@ namespace UniPrep.Utils {
         }
     }
 
+    /// <summary>
+    /// A Gameobject instance pool. Eg. Pool of bullet shells
+    /// </summary>
     public class GameObjectPool : PoolBase<GameObject> {
         GameObject m_Instance;
 
+        /// <summary>
+        /// Constructs a gameobject pool with the given instance
+        /// </summary>
+        /// <param name="instance"></param>
         public GameObjectPool(GameObject instance) {
             m_Instance = instance;
         }
 
+        /// <summary>
+        /// Instantiates a copy of <see cref="m_Instance"/> and adds it to the pool
+        /// </summary>
         protected override void Add() {
             var newInstance = MonoBehaviour.Instantiate<GameObject>(m_Instance);
             m_Pool.Add(newInstance, true);
