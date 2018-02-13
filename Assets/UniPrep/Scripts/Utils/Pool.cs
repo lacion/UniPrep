@@ -4,18 +4,19 @@ using System.Collections.Generic;
 
 namespace UniPrep.Utils {
     public abstract class PoolBase<T> {
-        protected Dictionary<T, bool> m_Pool = new Dictionary<T, bool>();
-
+        protected List<T> m_Available = new List<T>();
+        protected List<T> m_Busy = new List<T>();
+        
         /// <summary>
         /// Gets a free instance from the pool. Constructs a new instance if none is free
         /// </summary>
         /// <returns></returns>
         public T Get() {
-            foreach (var pair in m_Pool) {
-                if (pair.Value) {
-                    m_Pool[pair.Key] = false;
-                    return pair.Key;
-                }
+            if (m_Available.Count > 0) {
+                var instance = m_Available[0];
+                m_Available.RemoveAt(0);
+                m_Busy.Add(instance);
+                return instance;
             }
             Add();
             return Get();
@@ -32,8 +33,12 @@ namespace UniPrep.Utils {
         /// </summary>
         /// <param name="obj"></param>
         public void Free(T obj) {
-            if (m_Pool.ContainsKey(obj))
-                m_Pool[obj] = true;
+            var index = m_Busy.IndexOf(obj);
+            if (index == -1)
+                return;
+            var instance = m_Busy[index];
+            m_Available.Add(instance);
+            m_Busy.RemoveAt(index);
         }
 
         /// <summary>
@@ -41,8 +46,9 @@ namespace UniPrep.Utils {
         /// </summary>
         /// <param name="obj"></param>
         public void Remove(T obj) {
-            if (m_Pool.ContainsKey(obj))
-                m_Pool.Remove(obj);
+            var index = m_Available.IndexOf(obj);
+            if(index != 0) 
+                m_Available.RemoveAt(index);
         }
     }
 
@@ -50,10 +56,14 @@ namespace UniPrep.Utils {
     /// An instance pool of a Unity component
     /// </summary>
     /// <typeparam name="T"></typeparam>
-    public class ComponentPool<T> : PoolBase<T> where T : Component {               
+    public class ComponentPool<T> : PoolBase<T> where T : Component {
+        GameObjectPool m_Pool = new GameObjectPool(new GameObject("ComponentPoolContainer"));
+    
         protected override void Add() {
-            var instance = new GameObject(typeof(T).FullName).AddComponent<T>();
-            m_Pool.Add(instance as T, true);
+            var container = m_Pool.Get();
+            container.name = typeof(T).FullName;
+            var newInstance = container.AddComponent<T>();
+            m_Available.Add(newInstance);
         }
     }
 
@@ -64,8 +74,8 @@ namespace UniPrep.Utils {
     public class GenericPool<T> : PoolBase<T> {
         protected override void Add() {
             var def = default(T);
-            var instance = Activator.CreateInstance(def.GetType());
-            m_Pool.Add((T)instance, true);
+            var newInstance = Activator.CreateInstance(def.GetType());
+            m_Available.Add((T)newInstance);
         }
     }
 
@@ -88,7 +98,7 @@ namespace UniPrep.Utils {
         /// </summary>
         protected override void Add() {
             var newInstance = MonoBehaviour.Instantiate<GameObject>(m_Instance);
-            m_Pool.Add(newInstance, true);
+            m_Available.Add(newInstance);
         }
     }
 }
