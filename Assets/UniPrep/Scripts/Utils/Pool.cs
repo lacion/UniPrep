@@ -68,4 +68,17 @@ namespace UniPrep.Utils {
             m_Pool.Add((T)instance, true);
         }
     }
+
+    public class GameObjectPool : PoolBase<GameObject> {
+        GameObject m_Instance;
+
+        public GameObjectPool(GameObject instance) {
+            m_Instance = instance;
+        }
+
+        protected override void Add() {
+            var newInstance = MonoBehaviour.Instantiate<GameObject>(m_Instance);
+            m_Pool.Add(newInstance, true);
+        }
+    }
 }

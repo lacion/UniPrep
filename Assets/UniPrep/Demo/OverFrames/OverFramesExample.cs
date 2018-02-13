@@ -13,12 +13,13 @@ public class OverFramesExample : MonoBehaviour {
         OverFrames.For(x, y, n, 
             i => {
                 float value = i * Random.value;
+                Log(value);
             },
             ()=> { }
         );
 	}
 
-    void Log(string msg) {
+    void Log(object msg) {
         if (debug)
             Debug.Log(msg);
     }
